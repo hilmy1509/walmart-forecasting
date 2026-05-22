@@ -1,0 +1,21 @@
+// =====================================================================
+// FILE: 03_time_series_bounds.txt
+// DESCRIPTION: Upper and Lower confidence interval boundaries derived 
+//              from the FB Prophet model for visual uncertainty rendering.
+// =====================================================================
+
+Prophet_Yhat_Lower = 
+/*
+Explicit measure targeting the statistical lower bound threshold.
+Bound to the secondary Y-axis error band configuration.
+*/
+SUM ( 'walmart_sales_predictions'[yhat_lower] )
+
+
+Prophet_Yhat_Upper = 
+/*
+Explicit measure targeting the statistical upper bound threshold.
+Bound to the secondary Y-axis error band configuration.
+*/
+SUM ( 'walmart_sales_predictions'[yhat_upper] )
+

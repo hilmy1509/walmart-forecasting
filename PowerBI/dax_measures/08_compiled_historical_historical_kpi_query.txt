@@ -1,0 +1,44 @@
+// =====================================================================
+// FILE: 08_compiled_historical_kpi_query.txt
+// DESCRIPTION: Compiled internal DAX query captured via Performance Analyzer
+//              for the Total Historical Sales KPI Card visual.
+// AUTHOR: Hilmy Septian Nursyekha
+// PROJECT: Walmart Demand Forecasting & Data Auditing Analytics Pipeline
+// =====================================================================
+
+/*
+=========================================================================
+ARCHITECTURAL ANALYSIS & FORENSIC CODE BREAKDOWN:
+=========================================================================
+This script represents the direct atomic query compiled by the Power BI 
+engine to compute and render the single-value KPI metric card representing 
+the total aggregated realized historical sales.
+
+Key Mechanics Observed:
+1. SCALAR CONTEXT EXTRACTION USING ROW():
+   - Visual elements that display a single aggregated value (such as KPI Cards) 
+     do not generate multi-column tables. Instead, the VertiPaq engine wraps 
+     the execution within a native `ROW()` constructor.
+   - `ROW()` generates a virtual single-row grid table with a strict key-value 
+     structure, drastically minimizing metadata overhead and accelerating 
+     rendering speed on the canvas.
+
+2. CALCULATE ENGINES & RELATIONSHIP TRAVERSAL:
+   - The expression explicitly encapsulates the `SUM()` function inside a 
+     `CALCULATE()` block.
+   - This architectural pattern guarantees that any active filter context 
+     originating from user interaction with the slicers (e.g., selecting a 
+     specific Store or Department from the master dimension tables `Dim_Store` 
+     or `Dim_Dept`) will successfully propagate down through the Star Schema 
+     relational bonds to slice the physical fact table `'walmart_final_train_202605212105'` 
+     before the final text string is locked into the UI layer.
+*/
+
+// Step 1: Execute immediate scalar row transmission for the Historical Sales KPI
+EVALUATE
+    ROW(
+        "SumWeekly_Sales", 
+        CALCULATE(
+            SUM('walmart_final_train_202605212105'[Weekly_Sales])
+        )
+    )

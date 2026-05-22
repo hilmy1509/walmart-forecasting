@@ -1,0 +1,80 @@
+// =====================================================================
+// FILE: 09_compiled_table_query.txt
+// DESCRIPTION: Compiled internal DAX query captured via Performance Analyzer
+//              for the Top 10 Combinations Table visual.
+// AUTHOR: Hilmy Septian Nursyekha
+// PROJECT: Walmart Demand Forecasting & Data Auditing Analytics Pipeline
+// =====================================================================
+
+/*
+=========================================================================
+ARCHITECTURAL ANALYSIS & FORENSIC CODE BREAKDOWN:
+=========================================================================
+This script represents the advanced matrix query compiled by the Power BI 
+engine to compute, sort, and render the "Top 10 Combinations" summary 
+table containing hierarchical intersections of Store and Department keys.
+
+Key Mechanics Observed:
+1. THE ROLLUPGROUP & ROLLUPADDISSUBTOTAL ARCHITECTURE:
+   - `ROLLUPGROUP('...'[Store], '...'[Dept])`: Binds the cross-join coordinates 
+     of Store and Department together as a single atomic grain.
+   - `ROLLUPADDISSUBTOTAL(..., "IsGrandTotalRowTotal")`: This is an explicit 
+     performance instruction injected by the visual layer. It forces the VertiPaq 
+     engine to compute the subtotal and grand total row segments *simultaneously* within a single evaluation pass, returning a boolean flag column 
+     (`[IsGrandTotalRowTotal]`). This prevents the engine from executing 
+     multiple redundant scans over the large fact table.
+
+2. COMPLEX MULTI-CONSTRAINTS SORTING (TOPN):
+   - `TOPN(502, ...)`: Power BI requests a buffer window of 502 records.
+   - The ordering array inside `TOPN` exposes exactly how the engine builds the 
+     ranking hierarchy:
+     1. `[IsGrandTotalRowTotal], 0`: Sorts totals/subtotals first (0 = Descending 
+        or prioritized placement).
+     2. `[SumForecasted_Sales], 0`: Sorts the numerical projection values in 
+        Descending order to ensure the highest-volume sales hubs float to the top.
+     3. `'...'[Store], 1` & `'...'[Dept], 1`: Acts as tie-breakers, sorting 
+        the physical keys in Ascending order (1 = Ascending) to maintain strict 
+        matrix alignment.
+
+3. DUAL-PURPOSE EXECUTION LAYER:
+   - `EVALUATE` dumps the final compressed window segment directly into the UI 
+     rendering framework.
+   - The final `ORDER BY` clause mirrors the `TOPN` constraint stack to guarantee 
+     that the data rows match the precise sorting state requested by the user 
+     on the dashboard canvas.
+*/
+
+DEFINE
+    // Step 1: Compute cross-joined transactional intersections with embedded grand-total flag logic
+    VAR __DS0Core = 
+        SUMMARIZECOLUMNS(
+            ROLLUPADDISSUBTOTAL(
+                ROLLUPGROUP(
+                    'walmart_sales_predictions_murni_future'[Store],
+                    'walmart_sales_predictions_murni_future'[Dept]
+                ), "IsGrandTotalRowTotal" // Generates the virtual metadata marker for aggregation rows
+            ),
+            "SumForecasted_Sales", CALCULATE(SUM('walmart_sales_predictions_murni_future'[Forecasted_Sales]))
+        )
+
+    // Step 2: Extract the prioritized analytical window based on subtotal presence and sales volume
+    VAR __DS0PrimaryWindowed = 
+        TOPN(
+            502,                        // Safety buffer record threshold allocation
+            __DS0Core,                  // Target evaluation source table
+            [IsGrandTotalRowTotal], 0,  // Priority 1: Aggregate rows isolation (Descending)
+            [SumForecasted_Sales], 0,   // Priority 2: Volume optimization ranking (Descending)
+            'walmart_sales_predictions_murni_future'[Store], 1, // Priority 3: Tie-breaker Store key (Ascending)
+            'walmart_sales_predictions_murni_future'[Dept], 1   // Priority 4: Tie-breaker Department key (Ascending)
+        )
+
+// Step 3: Stream the sorted matrix payload straight into the visual grid component
+EVALUATE
+    __DS0PrimaryWindowed
+
+// Step 4: Finalize layout sequence sorting parameters for the browser viewport display
+ORDER BY
+    [IsGrandTotalRowTotal] DESC,
+    [SumForecasted_Sales] DESC,
+    'walmart_sales_predictions_murni_future'[Store],
+    'walmart_sales_predictions_murni_future'[Dept]

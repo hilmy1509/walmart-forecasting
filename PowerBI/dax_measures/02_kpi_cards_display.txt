@@ -1,0 +1,27 @@
+// =====================================================================
+// FILE: 02_kpi_cards_display.txt
+// DESCRIPTION: Explicit measures for high-level Business KPI Cards 
+//              with robust blank-handling routines.
+// =====================================================================
+
+Total_Historical_Sales_Global = 
+/*
+Calculates total realized sales from the training dataset.
+Uses explicit aggregation to replace default implicit Power BI behavior.
+*/
+SUM ( 'walmart_final_train'[Weekly_Sales] )
+
+
+Forecasted_Sales_Display = 
+/*
+Calculates total projected volume across the 12-week horizon.
+Includes an evaluation trap: if an unpredicted store/dept combination is selected, 
+it gracefully returns 0 instead of the unpolished blank string '--'.
+*/
+IF (
+    ISBLANK ( 
+        SUM ( 'walmart_sales_predictions'[Forecasted_Sales] ) 
+    ),
+    0,
+    SUM ( 'walmart_sales_predictions'[Forecasted_Sales] )
+)

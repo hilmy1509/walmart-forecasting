@@ -1,0 +1,21 @@
+// =====================================================================
+// FILE: 01_slicer_controls.txt
+// DESCRIPTION: DAX Measures to optimize slicer visibility and prevent
+//              blank visualization artifacts on the canvas.
+// =====================================================================
+
+Slicer_Filter = 
+/*
+Author: Hilmy Septian Nursyekha
+Purpose: Dynamically filters the Store and Department slicers. 
+         Returns 1 if the specific dimension coordinate has forecasted data, 
+         preventing the dashboard from showing empty/blank plots.
+Instruction: Apply this measure to "Filters on this visual" for both slicers and set to "is exactly 1".
+*/
+IF (
+    ISBLANK (
+        SUM ( 'walmart_sales_predictions'[Forecasted_Sales] )
+    ),
+    0,
+    1
+)

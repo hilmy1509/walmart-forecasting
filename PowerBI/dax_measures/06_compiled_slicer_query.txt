@@ -1,0 +1,63 @@
+// =====================================================================
+// FILE: 06_compiled_slicer_query.txt
+// DESCRIPTION: Compiled internal DAX query captured via Performance Analyzer
+//              for the dynamically filtered Department Slicer visual.
+// AUTHOR: Hilmy Septian Nursyekha
+// PROJECT: Walmart Demand Forecasting & Data Auditing Analytics Pipeline
+// =====================================================================
+
+/*
+=========================================================================
+ARCHITECTURAL ANALYSIS & FORENSIC CODE BREAKDOWN:
+=========================================================================
+This script represents the exact internal query compiled by the Power BI 
+engine to compute and render the available elements within the Department (Dept) 
+slicer after applying our custom dynamic DAX Measure constraint.
+
+Key Mechanics Observed:
+1. THE KEEPFILTERS() & ADDCOLUMNS() HYBRID LAYER:
+   - `VALUES('Dim_Dept'[Dept])`: Fetches the unique list of departments directly 
+     from the Master Dimension table, honoring the Star Schema blueprint.
+   - `ADDCOLUMNS()`: Injects our custom DAX measure `[Slicer_Filter]` on top of 
+     each master row. This triggers an evaluation block to check if that specific 
+     department actually holds forecasted rows within the transactional fact table.
+   - `KEEPFILTERS()`: Forces the engine to respect existing context coordinates 
+     and prevents any illegal cross-filtering context overrides during runtime.
+
+2. VERTICAL FILTERING TRAP:
+   - `FILTER(..., [Slicer_Filter] = 1)`: This is where the magic happens. The engine 
+     evaluates the virtual column and strips out any department returning a 0 (blank). 
+     This resolves the user experience defect by shrinking the list down instantly from 
+     95 departments to only the relevant Top 10 combinations.
+
+3. THE SAFETY PROTECTION WINDOW (`TOPN`):
+   - `TOPN(501, ...)`: Power BI strategically injects a safety boundary limit. 
+     Even if a dimension contains millions of records, the visual layer constraints 
+     the active dataset to the first 501 rows per batch execution to preserve UI memory 
+     efficiency and prevent web-rendering performance crash.
+*/
+
+DEFINE
+    // Step 1: Synthesize the unique dimension values with the dynamic validation state
+    VAR __DS0Core = 
+        FILTER(
+            KEEPFILTERS(
+                ADDCOLUMNS(
+                    KEEPFILTERS(VALUES('Dim_Dept'[Dept])),
+                    "Slicer_Filter", 'Calendar'[Slicer_Filter] // Evaluates the condition across the model
+                )
+            ),
+            [Slicer_Filter] = 1 // Immediately purges non-predicted departments from the UI matrix
+        )
+
+    // Step 2: Establish an internal performance ceiling boundary window
+    VAR __DS0PrimaryWindowed = 
+        TOPN(501, __DS0Core, 'Dim_Dept'[Dept], 1)
+
+// Step 3: Stream the optimized data payload to draw the active slicer nodes
+EVALUATE
+    __DS0PrimaryWindowed
+
+// Step 4: Sort the visible department keys in perfect numerical/alphabetical order
+ORDER BY
+    'Dim_Dept'[Dept]

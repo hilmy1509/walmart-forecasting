@@ -1,0 +1,67 @@
+// =====================================================================
+// FILE: 07_compiled_store_slicer_query.txt
+// DESCRIPTION: Compiled internal DAX query captured via Performance Analyzer
+//              for the dynamically filtered Store Slicer visual.
+// AUTHOR: Hilmy Septian Nursyekha
+// PROJECT: Walmart Demand Forecasting & Data Auditing Analytics Pipeline
+// =====================================================================
+
+/*
+=========================================================================
+ARCHITECTURAL ANALYSIS & FORENSIC CODE BREAKDOWN:
+=========================================================================
+This script represents the exact internal query compiled by the Power BI 
+engine to compute and render the available elements within the Store 
+slicer after applying our custom dynamic DAX Measure constraint.
+
+Key Mechanics Observed:
+1. VALUES() FROM STAR SCHEMA MASTER DIMENSION:
+   - `VALUES('Dim_Store'[Store])`: Directly queries the unique list of Store IDs 
+     from the Master Dimension table ('Dim_Store'). This perfectly isolates the 
+     evaluation space before hitting the transactional fact tables.
+
+2. ITERATIVE COLUMN EXTENSION & CONTEXT RETENTION:
+   - `ADDCOLUMNS(...)`: Appends a temporary virtual column named "Slicer_Filter" 
+     evaluated using our dynamic measure ` 'Calendar'[Slicer_Filter] `.
+   - `KEEPFILTERS(...)`: Preserves the natural context of the model, preventing 
+     the internal join matrix from overriding any upstream page-level or 
+     report-level filters.
+
+3. SQUASHING THE VISUAL SCROLLER ARTIFACT:
+   - `FILTER(..., [Slicer_Filter] = 1)`: The core filtering logical gate. By stripping 
+     away all Store records that compute to a blank value, the list instantly 
+     shrinks from all 45 physical locations down to only the active subset processed 
+     by the FB Prophet pipeline. This successfully eliminates the thick vertical 
+     scrollbar UI bug on the canvas.
+
+4. BALANCED PAGINATION CEILING (TOPN):
+   - `TOPN(501, ...)`: An automatic performance safeguard injected by Vertipaq. 
+     It restricts the initial payload generation to a hard maximum of 501 rows 
+     per evaluation batch, securing optimal memory allocation during client-side 
+     rendering loops.
+*/
+
+DEFINE
+    // Step 1: Combine unique master dimension rows with our dynamic validation metric
+    VAR __DS0Core = 
+        FILTER(
+            KEEPFILTERS(
+                ADDCOLUMNS(
+                    KEEPFILTERS(VALUES('Dim_Store'[Store])),
+                    "Slicer_Filter", 'Calendar'[Slicer_Filter] // Calculates live transactional existence
+                )
+            ),
+            [Slicer_Filter] = 1 // Purges empty dimension records from the visual UI viewport
+        )
+
+    // Step 2: Establish an internal engine safety pagination window
+    VAR __DS0PrimaryWindowed = 
+        TOPN(501, __DS0Core, 'Dim_Store'[Store], 1)
+
+// Step 3: Stream the compressed, optimized payload to populate the Store slicer visual nodes
+EVALUATE
+    __DS0PrimaryWindowed
+
+// Step 4: Ensure structural sorting consistency in perfect ascending order along the UI list
+ORDER BY
+    'Dim_Store'[Store]

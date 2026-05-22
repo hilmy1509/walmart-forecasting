@@ -1,0 +1,82 @@
+// =====================================================================
+// FILE: 04_compiled_visual_queries.txt
+// DESCRIPTION: Compiled internal DAX query captured via Performance Analyzer
+//              for the primary Time Series Line Chart visual.
+// AUTHOR: Hilmy Septian Nursyekha
+// PROJECT: Walmart Demand Forecasting & Data Auditing Analytics Pipeline
+// =====================================================================
+
+/*
+=========================================================================
+ARCHITECTURAL ANALYSIS & FORENSIC CODE BREAKDOWN:
+=========================================================================
+This script represents the exact query compiled by the Power BI rendering 
+engine to plot the dual-axis line chart containing historical data, 
+forecasted curves, and statistical error ribbons.
+
+Key Mechanics Observed:
+1. DEFINE & VARIABLE BLOCK:
+   - `__DS0Core`: Aggregates physical fact rows ('walmart_final_train_202605212105' 
+     and 'walmart_sales_predictions_murni_future') mapped cleanly across the 
+     shared temporal axis ('Calendar'[Date]) conforming to the Star Schema.
+   - `IGNORE()`: Wrapped around confidence boundary metrics (yhat_lower/upper). 
+     This tells the engine to keep evaluation contextualized but ignore empty matrix 
+     cells to prevent visualization breakage.
+
+2. OPTIMIZATION RADAR (SAMPLEAXISWITHLOCALMINMAX):
+   - Power BI dynamically injects a binning sampler function (`SAMPLEAXISWITHLOCALMINMAX`).
+   - Instead of blindly dumping tens of thousands of data points into the browser canvas 
+     (which would choke the RAM and GPU rendering of the client machine), the engine 
+     bins the data down to a maximum density of 3500 intervals while rigorously preserving 
+     local peaks and troughs (Min/Max). This guarantees accurate visualization of holiday 
+     sales spikes (e.g., Thanksgiving/Christmas spikes) without rendering lag.
+
+3. DUAL EVALUATE STATEMENTS:
+   - The first `EVALUATE` block fetches structural counts (`__DS0IntersectionCount`).
+   - The second `EVALUATE` retrieves the binned coordinates ordered sequentially by date, 
+     feeding the chart's X-axis seamlessly.
+*/
+
+DEFINE
+    // Step 1: Core multi-table cross-join and metrics aggregation block
+    VAR __DS0Core = 
+        SUMMARIZECOLUMNS(
+            'Calendar'[Date],
+            "SumWeekly_Sales", CALCULATE(SUM('walmart_final_train_202605212105'[Weekly_Sales])),
+            "SumForecasted_Sales", CALCULATE(SUM('walmart_sales_predictions_murni_future'[Forecasted_Sales])),
+            "Sumyhat_lower", IGNORE(CALCULATE(SUM('walmart_sales_predictions_murni_future'[yhat_lower]))),
+            "Sumyhat_upper", IGNORE(CALCULATE(SUM('walmart_sales_predictions_murni_future'[yhat_upper])))
+        )
+
+    // Step 2: Track intersection metrics row count for query sizing evaluation
+    VAR __DS0IntersectionCount = CALCULATE(COUNTROWS(__DS0Core))
+
+    // Step 3: Inject advanced high-performance binning sampler to prevent visual canvas clogging
+    VAR __DS0BodyBinnedSample = 
+        SAMPLEAXISWITHLOCALMINMAX(
+            3500,                   // Target max data points resolution for high-density UI rendering
+            __DS0Core,              // Input data core dataset
+            'Calendar'[Date],       // Partition axis dimension
+            [SumWeekly_Sales],      // Metric anchor 1: Historical Sales Trend
+            [SumForecasted_Sales],  // Metric anchor 2: FB Prophet Future Forecast Trend
+            350,                    // Sample bin window frame
+            ,                       // Reserved sorting parameter
+            ALPHABETICAL,           // Temporal evaluation type
+            ASC,                    // Ascending temporal sequence 
+            105000,                 // Internal capacity memory ceiling threshold
+            60                      // Sampling look-ahead constraint factor
+        )
+
+// Step 4: Execute transmission of structural row check summary
+EVALUATE
+    ROW(
+        "DS0IntersectionCount", __DS0IntersectionCount
+    )
+
+// Step 5: Execute transmission of final sample data payload optimized for rendering
+EVALUATE
+    __DS0BodyBinnedSample
+
+// Step 6: Guarantee flawless chronological sequence alignment along the X-Axis timeline
+ORDER BY
+    'Calendar'[Date]
